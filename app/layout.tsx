@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "InstaFetch - Instagram Downloader",
   description:
-    "Unduh Reel, post, story, dan IGTV Instagram dengan cepat dan mudah.",
+    "Unduh Reel dan post Instagram dengan cepat dan mudah.",
 };
 
 export const viewport: Viewport = {
