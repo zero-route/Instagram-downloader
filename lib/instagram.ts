@@ -441,6 +441,13 @@ function parseDownload(body: Json): Download {
   };
 }
 
+function longerText(a: string | null, b: string | null) {
+  if (!a) return b;
+  if (!b) return a;
+
+  return b.length > a.length ? b : a;
+}
+
 function safeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 60);
 }
@@ -554,7 +561,7 @@ export async function fetchInstagramMedia(
       views: info?.views ?? download?.views ?? null,
     },
     timestamp: info?.timestamp ?? download?.timestamp ?? null,
-    caption: info?.caption ?? download?.caption ?? null,
+    caption: longerText(info?.caption ?? null, download?.caption ?? null),
     items: usable,
     meta: { info: info !== null, download: download !== null },
   };
