@@ -6,7 +6,7 @@ const MAX_ATTEMPTS = 3;
 
 type Json = Record<string, unknown>;
 
-export type TargetKind = "post" | "reel" | "tv" | "story" | "share";
+export type TargetKind = "post" | "reel" | "share";
 
 export type Target = {
   url: string;
@@ -26,7 +26,7 @@ export type MediaItem = {
 
 export type InstagramData = {
   id: string | null;
-  kind: "Post" | "Reel" | "Story" | "IGTV";
+  kind: "Post" | "Reel";
   mediaType: "video" | "photo" | "carousel";
   url: string;
   profileUrl: string | null;
@@ -117,12 +117,12 @@ export function parseTarget(raw: string): Target | null {
   if (host !== "instagram.com" && host !== "instagr.am") return null;
 
   const parts = parsed.pathname.split("/").filter(Boolean);
-  const types = ["p", "reel", "reels", "tv"];
+  const types = ["p", "reel", "reels"];
   const codePattern = /^[A-Za-z0-9_-]+$/;
 
   let typeIndex = -1;
 
-  if (parts[0] !== "share" && parts[0] !== "stories") {
+  if (parts[0] !== "share") {
     if (types.includes(parts[0] ?? "")) {
       typeIndex = 0;
     } else if (types.includes(parts[1] ?? "")) {
@@ -136,8 +136,7 @@ export function parseTarget(raw: string): Target | null {
 
     if (!code || !codePattern.test(code)) return null;
 
-    const kind: TargetKind =
-      type === "p" ? "post" : type === "tv" ? "tv" : "reel";
+    const kind: TargetKind = type === "p" ? "post" : "reel";
     const path = type === "reels" ? "reel" : type;
 
     return {
@@ -145,20 +144,6 @@ export function parseTarget(raw: string): Target | null {
       kind,
       shortcode: code,
       username: typeIndex === 1 ? parts[0] : null,
-    };
-  }
-
-  if (parts[0] === "stories" && parts.length >= 3) {
-    const username = parts[1];
-    const id = parts[2];
-
-    if (!codePattern.test(username) || !/^[0-9]+$/.test(id)) return null;
-
-    return {
-      url: `https://www.instagram.com/stories/${username}/${id}/`,
-      kind: "story",
-      shortcode: id,
-      username: username === "highlights" ? null : username,
     };
   }
 
@@ -528,17 +513,13 @@ export async function fetchInstagramMedia(
         : "photo";
 
   const kind: InstagramData["kind"] =
-    target.kind === "story"
-      ? "Story"
-      : target.kind === "tv"
-        ? "IGTV"
-        : target.kind === "reel"
+    target.kind === "reel"
+      ? "Reel"
+      : target.kind === "post"
+        ? "Post"
+        : mediaType === "video"
           ? "Reel"
-          : target.kind === "post"
-            ? "Post"
-            : mediaType === "video"
-              ? "Reel"
-              : "Post";
+          : "Post";
 
   const avatarUrl = info?.avatar ?? null;
 
