@@ -15,7 +15,7 @@ type Item = {
 
 type MediaData = {
   id: string | null;
-  kind: "Post" | "Reel" | "Story" | "IGTV";
+  kind: "Post" | "Reel";
   mediaType: "video" | "photo" | "carousel";
   url: string;
   profileUrl: string | null;
@@ -467,7 +467,7 @@ export default function Home() {
 
       <section className="hero" id="top">
         <h1 className="hero-title">Unduh konten Instagram</h1>
-        <p className="tagline">Reel, post, story, dan IGTV, dengan mudah.</p>
+        <p className="tagline">Reel, video, dan foto, dengan mudah.</p>
       </section>
 
       <form className="search" onSubmit={handleSubmit}>
@@ -542,28 +542,39 @@ export default function Home() {
               }}
               onTouchEnd={onTouchEnd}
             >
-              {active.type === "photo" ? (
-                <>
+              {active.type === "photo" && (
+                <SmartImage
+                  className="stage-blur"
+                  direct={active.direct}
+                  proxy={active.src}
+                  alt=""
+                  aria-hidden="true"
+                />
+              )}
+
+              {items.map((item, index) =>
+                item.type === "photo" ? (
                   <SmartImage
-                    key={`blur-${active.src}`}
-                    className="stage-blur"
-                    direct={active.direct}
-                    proxy={active.src}
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <SmartImage
-                    key={active.src}
-                    className="stage-img"
-                    direct={active.direct}
-                    proxy={active.src}
-                    alt={`Foto ${slide + 1}`}
+                    key={item.src}
+                    className={
+                      index === slide && !playingVideo
+                        ? "stage-img stage-img-on"
+                        : "stage-img"
+                    }
+                    direct={item.direct}
+                    proxy={item.src}
+                    alt={`Foto ${index + 1}`}
+                    aria-hidden={index !== slide}
                     draggable={false}
-                    onLoad={captureRatio}
+                    onLoad={(event) => {
+                      if (index === slide) captureRatio(event);
+                    }}
                     onEarlyFail={refreshOnce}
                   />
-                </>
-              ) : playingVideo ? (
+                ) : null
+              )}
+
+              {active.type === "photo" ? null : playingVideo ? (
                 <video
                   key={active.src}
                   className="player"
