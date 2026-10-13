@@ -5,6 +5,11 @@ export const metadata: Metadata = {
   title: "InstaFetch - Instagram Downloader",
   description:
     "Unduh Reel dan post Instagram dengan cepat dan mudah.",
+    icons: {
+      icon: "/logo.png", 
+      shortcut: "/logo.png", 
+      apple: "/logo.png", 
+    }, 
 };
 
 export const viewport: Viewport = {
