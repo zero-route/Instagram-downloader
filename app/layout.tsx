@@ -6,9 +6,9 @@ export const metadata: Metadata = {
   description:
     "Unduh Reel dan post Instagram dengan cepat dan mudah.",
     icons: {
-      icon: "/logo.png", 
-      shortcut: "/logo.png", 
-      apple: "/logo.png", 
+      icon: "/icon.png", 
+      shortcut: "/icon.png", 
+      apple: "/icon.png", 
     }, 
 };
 
