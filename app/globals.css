@@ -136,7 +136,12 @@ a {
 }
 
 .field:focus-within {
-  border-color: #77797d;
+  border-color: var(--magenta);
+  box-shadow: 0 0 0 2px rgba(255, 22, 226, 0.12);
+}
+
+.field:focus-within .field-icon {
+  color: var(--magenta);
 }
 
 .field-icon {
