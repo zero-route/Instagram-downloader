@@ -160,6 +160,10 @@ a {
   color: #85868a;
 }
 
+.field input:hover {
+  border: 1px solid var(--magenta);
+}
+
 .field-clear {
   flex-shrink: 0;
   width: 28px;
