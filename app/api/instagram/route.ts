@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   if (!target) {
     return fail(
-      "Tautan Instagram tidak valid. Gunakan tautan Reel atau post Instagram.",
+      "Tautan Instagram tidak valid. Gunakan tautan post, Reel, atau story Instagram.",
       400
     );
   }
