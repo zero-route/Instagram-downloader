@@ -15,7 +15,7 @@ type Item = {
 
 type MediaData = {
   id: string | null;
-  kind: "Post" | "Reel";
+  kind: "Post" | "Reel" | "Story";
   mediaType: "video" | "photo" | "carousel";
   url: string;
   profileUrl: string | null;
@@ -453,7 +453,7 @@ export default function Home() {
               },
             ]
           : []),
-      ]
+      ].filter((stat) => stat.value !== null)
     : [];
 
   return (
@@ -467,7 +467,7 @@ export default function Home() {
 
       <section className="hero" id="top">
         <h1 className="hero-title">Unduh konten Instagram</h1>
-        <p className="tagline">Reel, video, dan foto, dengan mudah.</p>
+        <p className="tagline">Reel, story, video, dan foto, dengan mudah.</p>
       </section>
 
       <form className="search" onSubmit={handleSubmit}>
@@ -752,22 +752,24 @@ export default function Home() {
               )}
             </div>
 
-            <div
-              className="stats"
-              style={{
-                gridTemplateColumns: `repeat(${statList.length}, minmax(0, 1fr))`,
-              }}
-            >
-              {statList.map((stat) => (
-                <div className="stat" key={stat.key}>
-                  <div className="stat-top">
-                    {stat.icon}
-                    <strong>{formatCount(stat.value)}</strong>
+            {statList.length > 0 && (
+              <div
+                className="stats"
+                style={{
+                  gridTemplateColumns: `repeat(${statList.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {statList.map((stat) => (
+                  <div className="stat" key={stat.key}>
+                    <div className="stat-top">
+                      {stat.icon}
+                      <strong>{formatCount(stat.value)}</strong>
+                    </div>
+                    <span>{stat.name}</span>
                   </div>
-                  <span>{stat.name}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
             {caption && (
               <div className="caption">
