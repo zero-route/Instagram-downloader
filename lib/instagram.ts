@@ -1,18 +1,19 @@
 import { proxyPath } from "@/lib/sign";
 
-const DEFAULT_HOST = "instagram-looter2.p.rapidapi.com";
+const DEFAULT_HOST = "best-instagram-scraper-free-1000-calls.p.rapidapi.com";
 const TIMEOUT_MS = 14000;
 const MAX_ATTEMPTS = 3;
 
 type Json = Record<string, unknown>;
 
-export type TargetKind = "post" | "reel" | "share";
+export type TargetKind = "post" | "reel" | "story" | "share";
 
 export type Target = {
   url: string;
   kind: TargetKind;
   shortcode: string | null;
   username: string | null;
+  id: string | null;
 };
 
 export type MediaItem = {
@@ -26,7 +27,7 @@ export type MediaItem = {
 
 export type InstagramData = {
   id: string | null;
-  kind: "Post" | "Reel";
+  kind: "Post" | "Reel" | "Story";
   mediaType: "video" | "photo" | "carousel";
   url: string;
   profileUrl: string | null;
@@ -122,7 +123,7 @@ export function parseTarget(raw: string): Target | null {
 
   let typeIndex = -1;
 
-  if (parts[0] !== "share") {
+  if (parts[0] !== "share" && parts[0] !== "stories") {
     if (types.includes(parts[0] ?? "")) {
       typeIndex = 0;
     } else if (types.includes(parts[1] ?? "")) {
@@ -144,6 +145,7 @@ export function parseTarget(raw: string): Target | null {
       kind,
       shortcode: code,
       username: typeIndex === 1 ? parts[0] : null,
+      id: null,
     };
   }
 
@@ -157,6 +159,19 @@ export function parseTarget(raw: string): Target | null {
       kind: "share",
       shortcode: null,
       username: null,
+      id: null,
+    };
+  }
+
+  if (parts[0] === "stories" && /^\d{6,25}$/.test(parts[2] ?? "")) {
+    const user = parts[1] ?? "";
+
+    return {
+      url: `https://www.instagram.com/stories/${user}/${parts[2]}/`,
+      kind: "story",
+      shortcode: null,
+      username: /^[\w.]{1,40}$/.test(user) ? user : null,
+      id: parts[2],
     };
   }
 
@@ -171,7 +186,7 @@ type Fetched = {
 
 async function fetchEndpoint(
   path: string,
-  url: string,
+  post: string,
   isValid: (body: Json) => boolean
 ): Promise<Fetched> {
   const key = process.env.RAPIDAPI_KEY;
@@ -183,8 +198,8 @@ async function fetchEndpoint(
     );
   }
 
-  const host = process.env.RAPIDAPI_HOST || DEFAULT_HOST;
-  const endpoint = `https://${host}${path}?${new URLSearchParams({ url }).toString()}`;
+  const host = process.env.RAPIDAPI_HOST?.trim() || DEFAULT_HOST;
+  const endpoint = `https://${host}${path}?post=${encodeURIComponent(post)}`;
 
   let status: number | null = null;
   let attempts = 0;
@@ -238,37 +253,10 @@ async function fetchEndpoint(
   return { json: null, status, attempts };
 }
 
-function infoRoot(body: Json): Json {
-  if (
-    body.owner ||
-    body.shortcode ||
-    body.__typename ||
-    body.edge_sidecar_to_children
-  ) {
-    return body;
-  }
+function httpUrl(value: unknown): string | null {
+  const text = str(value);
 
-  return obj(body.data) ?? body;
-}
-
-function isValidInfo(body: Json) {
-  if (body.status === false) return false;
-
-  const root = infoRoot(body);
-
-  return obj(root.owner) !== null || str(root.shortcode) !== null;
-}
-
-function downloadRoot(body: Json): Json {
-  return obj(body.data) ?? body;
-}
-
-function isValidDownload(body: Json) {
-  if (body.status === false) return false;
-
-  return arr(downloadRoot(body).medias).some(
-    (item) => str(obj(item)?.link) !== null
-  );
+  return text && /^https?:\/\//i.test(text) ? text : null;
 }
 
 type Media = {
@@ -277,190 +265,195 @@ type Media = {
   thumb: string | null;
 };
 
-function bestResource(node: Json): string | null {
+function bestImage(node: Json): string | null {
+  const width = num(node.width);
+  const height = num(node.height);
+  const ratio = width && height ? width / height : null;
+
   let best: string | null = null;
   let area = -1;
 
-  for (const entry of arr(node.display_resources)) {
-    const resource = obj(entry);
-    const src = str(resource?.src);
+  for (const entry of arr(node.images)) {
+    const image = obj(entry);
+    const link = httpUrl(image?.link);
+    const w = num(image?.width);
+    const h = num(image?.height);
 
-    if (!src) continue;
+    if (!link || !w || !h) continue;
 
-    const size =
-      (num(resource?.config_width) ?? 0) * (num(resource?.config_height) ?? 0);
+    if (ratio && Math.abs(w / h - ratio) / ratio > 0.06) continue;
 
-    if (size > area) {
-      area = size;
-      best = src;
+    if (w * h > area) {
+      area = w * h;
+      best = link;
     }
   }
 
-  return best ?? str(node.display_url) ?? str(node.thumbnail_src);
+  return best ?? httpUrl(node.image);
 }
 
-function captionOf(root: Json): string | null {
-  const edges = arr(obj(root.edge_media_to_caption)?.edges);
-  const text = str(obj(obj(edges[0])?.node)?.text);
+function bestVideo(node: Json): string | null {
+  const video = obj(node.video);
+  const direct = httpUrl(video?.link) ?? httpUrl(node.video);
 
-  if (text) return text;
+  if (direct) return direct;
 
-  if (typeof root.caption === "string") return str(root.caption);
+  for (const entry of arr(node.videos)) {
+    const link = httpUrl(obj(entry)?.link);
 
-  return str(obj(root.caption)?.text);
+    if (link) return link;
+  }
+
+  return null;
 }
 
-type Info = {
-  shortcode: string | null;
-  username: string | null;
-  fullName: string | null;
-  avatar: string | null;
-  verified: boolean;
-  likes: number | null;
-  comments: number | null;
-  views: number | null;
-  caption: string | null;
-  timestamp: number | null;
-  medias: Media[];
-};
+function mediaOf(node: Json): Media | null {
+  const kind = (str(node.type) ?? "").toLowerCase();
+  const video = bestVideo(node);
+  const image = bestImage(node);
 
-function parseInfo(body: Json): Info {
-  const root = infoRoot(body);
-  const owner = obj(root.owner);
-  const hidden = root.like_and_view_counts_disabled === true;
+  if (video && (kind.includes("video") || !image || kind === "")) {
+    return { type: "video", url: video, thumb: image };
+  }
 
-  const children = arr(obj(root.edge_sidecar_to_children)?.edges)
-    .map((edge) => obj(obj(edge)?.node))
+  if (kind.includes("video") && video) {
+    return { type: "video", url: video, thumb: image };
+  }
+
+  if (image) return { type: "photo", url: image, thumb: image };
+
+  return video ? { type: "video", url: video, thumb: null } : null;
+}
+
+function isValidMedia(body: Json) {
+  return mediaList(body).length > 0;
+}
+
+function mediaList(body: Json): Media[] {
+  const root = obj(body.data) ?? body;
+  const children = [...arr(root.carousel), ...arr(root.items)]
+    .map((entry) => obj(entry))
     .filter((node): node is Json => node !== null);
 
   const nodes = children.length > 0 ? children : [root];
 
-  const medias = nodes
-    .map((node): Media => {
-      const video = node.is_video === true || str(node.video_url) !== null;
-      const image = bestResource(node);
-
-      return {
-        type: video ? "video" : "photo",
-        url: video ? str(node.video_url) : image,
-        thumb: image,
-      };
-    })
-    .filter((media) => media.url !== null);
-
-  return {
-    shortcode: str(root.shortcode),
-    username: str(owner?.username),
-    fullName: str(owner?.full_name),
-    avatar: str(owner?.profile_pic_url_hd) ?? str(owner?.profile_pic_url),
-    verified: owner?.is_verified === true,
-    likes: hidden
-      ? null
-      : count(obj(root.edge_media_preview_like)?.count) ??
-        count(obj(root.edge_liked_by)?.count) ??
-        count(root.like_count),
-    comments:
-      count(obj(root.edge_media_to_parent_comment)?.count) ??
-      count(obj(root.edge_media_preview_comment)?.count) ??
-      count(obj(root.edge_media_to_comment)?.count) ??
-      count(root.comment_count),
-    views:
-      count(root.video_view_count) ??
-      count(root.video_play_count) ??
-      count(root.view_count) ??
-      count(root.play_count),
-    caption: captionOf(root),
-    timestamp: num(root.taken_at_timestamp) ?? num(root.taken_at),
-    medias,
-  };
+  return nodes
+    .map(mediaOf)
+    .filter((media): media is Media => media !== null && media.url !== null);
 }
 
-type Download = {
-  username: string | null;
-  fullName: string | null;
-  likes: number | null;
-  comments: number | null;
-  views: number | null;
-  caption: string | null;
-  timestamp: number | null;
-  medias: Media[];
-};
+function isValidDetails(body: Json) {
+  const root = obj(body.data) ?? body;
 
-function parseDownload(body: Json): Download {
-  const root = downloadRoot(body);
-
-  const medias = arr(root.medias)
-    .map((entry): Media | null => {
-      const media = obj(entry);
-      const link = str(media?.link);
-
-      if (!media || !link) return null;
-
-      const kind = (str(media.type) ?? "").toLowerCase();
-      const video =
-        kind.includes("video") || /\.mp4$/i.test(link.split("?")[0]);
-
-      return {
-        type: video ? "video" : "photo",
-        url: link,
-        thumb:
-          str(media.thumbnail) ??
-          str(media.thumbnail_url) ??
-          str(media.thumb) ??
-          str(media.cover) ??
-          str(media.preview) ??
-          str(media.image),
-      };
-    })
-    .filter((media): media is Media => media !== null);
-
-  return {
-    username: str(root.username),
-    fullName: str(root.full_name),
-    likes: count(root.like_count),
-    comments: count(root.comment_count),
-    views: count(root.view_count) ?? count(root.play_count),
-    caption: captionOf(root),
-    timestamp: num(root.taken_at_timestamp),
-    medias,
-  };
+  return str(root.id) !== null || obj(root.owner) !== null;
 }
 
-function longerText(a: string | null, b: string | null) {
-  if (!a) return b;
-  if (!b) return a;
+function timestampOf(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value > 1e12 ? value / 1000 : value);
+  }
 
-  return b.length > a.length ? b : a;
+  const text = str(value);
+
+  if (!text) return null;
+
+  const asNumber = num(text);
+
+  if (asNumber !== null) {
+    return Math.floor(asNumber > 1e12 ? asNumber / 1000 : asNumber);
+  }
+
+  const parsed = Date.parse(text);
+
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
 }
 
 function safeName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 60);
 }
 
+async function resolveShare(url: string): Promise<Target | null> {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      cache: "no-store",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        Accept: "text/html,*/*",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    await response.body?.cancel().catch(() => undefined);
+
+    const resolved = parseTarget(response.url);
+
+    return resolved && resolved.kind !== "share" ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function candidatesOf(target: Target): string[] {
+  const list: string[] = [];
+
+  if (target.kind === "story" && target.id) list.push(target.id);
+
+  list.push(target.url);
+
+  if (target.shortcode) list.push(target.shortcode);
+
+  return [...new Set(list)];
+}
+
+async function firstValid(
+  path: string,
+  candidates: string[],
+  isValid: (body: Json) => boolean
+) {
+  let last: Fetched = { json: null, status: null, attempts: 0 };
+
+  for (const candidate of candidates) {
+    last = await fetchEndpoint(path, candidate, isValid);
+
+    if (last.json) return last;
+
+    if (last.status === 401 || last.status === 403 || last.status === 429) {
+      break;
+    }
+  }
+
+  return last;
+}
+
 export async function fetchInstagramMedia(
-  target: Target
+  input: Target
 ): Promise<InstagramData> {
-  const [infoResult, downloadResult] = await Promise.all([
-    fetchEndpoint("/post", target.url, isValidInfo),
-    fetchEndpoint("/post-dl", target.url, isValidDownload),
+  let target = input;
+
+  if (target.kind === "share") {
+    const resolved = await resolveShare(target.url);
+
+    if (resolved) target = resolved;
+  }
+
+  const candidates = candidatesOf(target);
+
+  const [mediaResult, detailResult] = await Promise.all([
+    firstValid("/posts/media", candidates, isValidMedia),
+    firstValid("/posts/details", candidates, isValidDetails),
   ]);
 
-  const info = infoResult.json ? parseInfo(infoResult.json) : null;
-  const download = downloadResult.json
-    ? parseDownload(downloadResult.json)
-    : null;
+  const medias = mediaResult.json ? mediaList(mediaResult.json) : [];
 
-  const base: Media[] =
-    download && download.medias.length > 0
-      ? download.medias
-      : (info?.medias ?? []);
-
-  if (base.length === 0) {
-    const statuses = [infoResult.status, downloadResult.status];
+  if (medias.length === 0) {
+    const statuses = [mediaResult.status, detailResult.status];
 
     if (statuses.some((status) => status === 401 || status === 403)) {
       throw new ProviderError(
-        "Akses ke penyedia API ditolak. Periksa RAPIDAPI_KEY dan pastikan sudah berlangganan endpoint Media Info dan Media Download.",
+        "Akses ke penyedia API ditolak. Periksa RAPIDAPI_KEY dan pastikan sudah berlangganan API Instagram.",
         502
       );
     }
@@ -473,77 +466,89 @@ export async function fetchInstagramMedia(
     }
 
     throw new ProviderError(
-      "Media tidak ditemukan. Pastikan tautan benar, akun tidak privat, dan postingan masih tersedia.",
+      "Media tidak ditemukan. Pastikan tautan benar, akun tidak privat, dan postingan atau story masih tersedia.",
       404
     );
   }
 
-  const username = info?.username ?? download?.username ?? target.username;
-  const shortcode = info?.shortcode ?? target.shortcode;
-  const aligned = info !== null && info.medias.length === base.length;
+  const mediaRoot = obj(mediaResult.json?.data) ?? mediaResult.json ?? {};
+  const detail = detailResult.json
+    ? (obj(detailResult.json.data) ?? detailResult.json)
+    : null;
+
+  const owner = obj(detail?.owner) ?? obj(mediaRoot.owner);
+  const username = str(owner?.username) ?? target.username;
+
+  const shortcode =
+    str(detail?.code) ?? str(mediaRoot.code) ?? target.shortcode;
+
+  const productType = (
+    str(detail?.product_type) ??
+    str(mediaRoot.product_type) ??
+    ""
+  ).toLowerCase();
+
   const baseName = safeName(
-    `${username || "instagram"}_${shortcode || "media"}`
+    `${username || "instagram"}_${shortcode || target.id || "media"}`
   );
 
-  const items: MediaItem[] = base.map((media, index) => {
-    const twin = aligned ? info.medias[index] : null;
-    const mediaUrl = media.url ?? twin?.url ?? null;
-    const thumbUrl =
-      media.type === "photo" ? mediaUrl : (media.thumb ?? twin?.thumb ?? null);
-
-    const name = base.length > 1 ? `${baseName}_${index + 1}` : baseName;
+  const items: MediaItem[] = medias.map((media, index) => {
+    const mediaUrl = media.url as string;
+    const thumbUrl = media.type === "photo" ? mediaUrl : media.thumb;
+    const name = medias.length > 1 ? `${baseName}_${index + 1}` : baseName;
 
     return {
       type: media.type,
-      src: mediaUrl ? proxyPath(mediaUrl) : "",
-      download: mediaUrl ? proxyPath(mediaUrl, { name, download: true }) : "",
+      src: proxyPath(mediaUrl),
+      download: proxyPath(mediaUrl, { name, download: true }),
       direct: media.type === "photo" ? mediaUrl : null,
       thumb: thumbUrl ? proxyPath(thumbUrl) : null,
       thumbDirect: thumbUrl,
     };
   });
 
-  const usable = items.filter((item) => item.src);
-
   const mediaType: InstagramData["mediaType"] =
-    usable.length > 1
-      ? "carousel"
-      : usable[0]?.type === "video"
-        ? "video"
-        : "photo";
+    items.length > 1 ? "carousel" : items[0].type === "video" ? "video" : "photo";
 
   const kind: InstagramData["kind"] =
-    target.kind === "reel"
-      ? "Reel"
-      : target.kind === "post"
-        ? "Post"
-        : mediaType === "video"
-          ? "Reel"
-          : "Post";
+    target.kind === "story" || productType === "story"
+      ? "Story"
+      : target.kind === "reel" || productType === "clips"
+        ? "Reel"
+        : target.kind === "post"
+          ? "Post"
+          : mediaType === "video"
+            ? "Reel"
+            : "Post";
 
-  const avatarUrl = info?.avatar ?? null;
+  const avatarUrl = httpUrl(owner?.profile_picture);
+  const stats = obj(detail?.stats);
+  const hidden = detail?.are_likes_hidden === true;
+
+  const caption =
+    str(detail?.caption) ?? str(obj(detail?.caption)?.text) ?? str(detail?.title);
 
   return {
-    id: shortcode,
+    id: shortcode ?? target.id,
     kind,
     mediaType,
-    url: target.url,
+    url: kind === "Story" ? target.url : (str(detail?.link) ?? target.url),
     profileUrl: username ? `https://www.instagram.com/${username}/` : null,
     author: {
       username: username ?? null,
-      fullName: info?.fullName ?? download?.fullName ?? null,
-      verified: info?.verified ?? false,
+      fullName: str(owner?.full_name),
+      verified: owner?.is_verified === true,
       avatar: avatarUrl ? proxyPath(avatarUrl) : null,
       avatarDirect: avatarUrl,
     },
     stats: {
-      likes: info?.likes ?? download?.likes ?? null,
-      comments: info?.comments ?? download?.comments ?? null,
-      views: info?.views ?? download?.views ?? null,
+      likes: hidden ? null : count(stats?.like_count),
+      comments: count(stats?.comment_count),
+      views: count(stats?.view_count) ?? count(stats?.play_count),
     },
-    timestamp: info?.timestamp ?? download?.timestamp ?? null,
-    caption: longerText(info?.caption ?? null, download?.caption ?? null),
-    items: usable,
-    meta: { info: info !== null, download: download !== null },
+    timestamp: timestampOf(detail?.published_at),
+    caption,
+    items,
+    meta: { info: detail !== null, download: true },
   };
 }
